@@ -26,6 +26,7 @@ from datetime import timedelta
 
 from flask import Flask, jsonify, render_template_string, request, session
 from sqlalchemy import create_engine, func, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from werkzeug.security import check_password_hash, generate_password_hash
 from models import Base, User
@@ -70,6 +71,42 @@ def index():
     with engine.connect() as conn:
         version = conn.execute(text("SELECT version()")).scalar()
     return f"Backend is up. DB says: {version}"
+
+@app.route("/register", methods=["POST"])
+def register():
+    data = request.get_json(silent=True)
+    if not isinstance(data, dict):
+        return jsonify(error="Send a JSON object with username and password."), 400
+
+    username = data.get("username")
+    password = data.get("password")
+    if not isinstance(username, str) or not username.strip() or len(username) > 50:
+        return jsonify(error="Username must contain 1 to 50 characters and cannot be blank."), 400
+    if not isinstance(password, str) or len(password) < 8 or not password.strip():
+        return jsonify(error="Password must contain at least 8 characters and cannot be blank."), 400
+
+    with SessionLocal() as db_session:
+        if db_session.scalar(select(User).where(User.username == username)) is not None:
+            return jsonify(error="Username already exists."), 409
+
+        user = User(
+            username=username,
+            password_hash=generate_password_hash(password),
+            role="user",
+        )
+        db_session.add(user)
+        try:
+            db_session.commit()
+        except IntegrityError:
+            # The unique constraint also protects against simultaneous registrations.
+            db_session.rollback()
+            return jsonify(error="Username already exists."), 409
+
+        return jsonify(
+            message="User created. You can now log in.",
+            user={"id": user.id, "username": user.username, "role": user.role},
+        ), 201
+
 
 @app.route("/login", methods=["POST"])
 def login():

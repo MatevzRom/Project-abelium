@@ -24,7 +24,7 @@ import os
 
 from datetime import timedelta
 
-from flask import Flask, jsonify, render_template_string, request, session
+from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for
 from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
@@ -85,9 +85,42 @@ init_db()
 
 @app.route("/")
 def index():
-    with engine.connect() as conn:
-        version = conn.execute(text("SELECT version()")).scalar()
-    return f"Backend is up. DB says: {version}"
+    return redirect(url_for("show_page", page_name="home"))
+
+
+@app.route("/login", methods=["GET"])
+def login_page():
+    return render_template("login.html")
+
+
+@app.route("/register", methods=["GET"])
+def register_page():
+    return render_template("register.html")
+
+
+@app.route("/pages/<page_name>")
+def show_page(page_name):
+    pages = {
+        "home": ("Home", "Welcome to your time-tracking app.",
+                 "Use the navigation buttons to explore the three pages."),
+        "content": ("Content", "A little space to learn.",
+                    "Taking regular breaks can help you stay focused. Try a short walk between study sessions."),
+        "statistics": ("Statistics", "Your time on each page.",
+                       "Time tracking and live statistics will be added next. No time is being recorded yet."),
+    }
+    if page_name not in pages:
+        return "Page not found.", 404
+    with SessionLocal() as db_session:
+        user_id = session.get("user_id")
+        user = db_session.get(User, user_id) if isinstance(user_id, int) else None
+        if user is None:
+            session.clear()
+            return redirect(url_for("login_page"))
+        title, heading, description = pages[page_name]
+        return render_template(
+            "page.html", page_name=page_name, title=title,
+            heading=heading, description=description, user=user,
+        )
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -153,6 +186,12 @@ def login():
             message="Logged in.",
             user={"id": user.id, "username": user.username, "role": user.role},
         )
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify(message="Logged out.")
 
 
 def check_admin(db_session):

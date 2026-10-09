@@ -1,0 +1,7 @@
+.git
+.env
+.env.*
+codex_updates
+.venv
+**/__pycache__
+**/*.pyc

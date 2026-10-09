@@ -1,6 +1,8 @@
 services:
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
     ports:
       - "5000:5000"
     env_file: .env
@@ -8,7 +10,9 @@ services:
       db:
         condition: service_healthy
     volumes:
-      - ./backend:/app # dev only: live file sync, remove for a "production-like" run
+      # Development only: live sync for Python and frontend files.
+      - ./backend:/app/backend
+      - ./frontend:/app/frontend:ro
 
   db:
     image: postgres:16-alpine

@@ -1,4 +1,4 @@
-"""Run from /app: python -m unittest discover -s tests -v.
+"""Run from /app/backend: python -m unittest discover -s tests -v.
 
 Uses an isolated SQLite database and a controlled server clock, never live users.
 """

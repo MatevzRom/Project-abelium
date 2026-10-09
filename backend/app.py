@@ -23,6 +23,7 @@
 import os
 
 from datetime import timedelta
+from pathlib import Path
 from uuid import uuid4
 
 from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for
@@ -33,7 +34,12 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from models import Base, PageTime, TrackingState, User
 from tracking import confirm_time, register_tracking, utcnow
 
-app = Flask(__name__)
+frontend_dir = Path(__file__).resolve().parent.parent / "frontend"
+app = Flask(
+    __name__,
+    template_folder=str(frontend_dir / "templates"),
+    static_folder=str(frontend_dir / "static"),
+)
 app.config.update(
     SECRET_KEY=os.environ["FLASK_SECRET_KEY"],
     PERMANENT_SESSION_LIFETIME=timedelta(hours=24),

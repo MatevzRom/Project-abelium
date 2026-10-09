@@ -5,6 +5,7 @@
   let totals = {home: 0, content: 0, statistics: 0};
   let viewKey, sequence = 0, active = false, busy = false;
   let retryStart = false;
+  let promotionPending = false;
   let confirmedAt = performance.now();
   let queue = Promise.resolve();
 
@@ -41,11 +42,16 @@
 
   async function loadStatistics() {
     const body = document.getElementById('statistics-body');
-    if (!body || document.visibilityState !== 'visible') return;
+    if (!body || promotionPending || document.visibilityState !== 'visible') return;
     try {
       const response = await fetch('/api/statistics', {cache: 'no-store'});
       if (!response.ok) return;
       const data = await response.json();
+      if ((data.viewer_role === 'admin') !== config.isAdmin) {
+        window.location.reload();
+        return;
+      }
+      if (promotionPending) return;
       body.replaceChildren();
       for (const user of data.users) {
         const row = document.createElement('tr');
@@ -55,10 +61,49 @@
           cell.textContent = value;
           row.appendChild(cell);
         }
+        if (config.isAdmin) {
+          const roleCell = document.createElement('td');
+          roleCell.textContent = user.role;
+          row.appendChild(roleCell);
+          const actionCell = document.createElement('td');
+          if (!user.is_protected) {
+            const action = user.role === 'admin' ? 'demote' : 'promote';
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.textContent = action === 'promote' ? 'Make admin' : 'Make user';
+            button.setAttribute('aria-label', action === 'promote'
+              ? `Make ${user.username} an admin` : `Revoke admin role from ${user.username}`);
+            button.addEventListener('click', () => changeRole(user, action, button));
+            actionCell.appendChild(button);
+          } else {
+            actionCell.textContent = 'Protected account';
+          }
+          row.appendChild(actionCell);
+        }
         body.appendChild(row);
       }
       render();
     } catch { /* The tracking status already reports connection failures. */ }
+  }
+
+  async function changeRole(user, action, button) {
+    if (promotionPending) return;
+    promotionPending = true;
+    button.disabled = true;
+    const message = document.getElementById('admin-status');
+    message.textContent = `Updating ${user.username}…`;
+    try {
+      const response = await fetch(`/users/${user.id}/${action}`, {method: 'POST'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Role change failed.');
+      message.textContent = `${user.username} now has the ${data.user.role} role.`;
+    } catch (error) {
+      message.textContent = error.message || 'Could not connect. Please try again.';
+    } finally {
+      promotionPending = false;
+      button.disabled = false;
+      await loadStatistics();
+    }
   }
 
   function payload(action) {

@@ -250,6 +250,26 @@ def promote_user(user_id):
         )
 
 
+@app.route("/users/<int:user_id>/demote", methods=["POST"])
+def demote_user(user_id):
+    with SessionLocal() as db_session:
+        db_session.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+        error = check_admin(db_session)
+        if error is not None:
+            return error
+        user = db_session.get(User, user_id)
+        if user is None:
+            return jsonify(error="User not found."), 404
+        if user.is_protected:
+            return jsonify(error="Cannot revoke the protected First User's admin role."), 409
+        user.role = "user"
+        db_session.commit()
+        return jsonify(
+            message="Admin role revoked.",
+            user={"id": user.id, "username": user.username, "role": user.role},
+        )
+
+
 @app.route("/users/<int:user_id>", methods=["DELETE"])
 def delete_user(user_id):
     with SessionLocal() as db_session:

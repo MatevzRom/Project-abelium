@@ -87,7 +87,8 @@ def register_tracking(app, SessionLocal):
             if user is None or state is None or state.login_key != session.get("tracking_key"):
                 return jsonify(error="Login required."), 401
             users = db.scalars(select(User).order_by(User.id)).all() if user.role == "admin" else [user]
-            return jsonify(users=[
+            return jsonify(viewer_role=user.role, users=[
                 {"id": item.id, "username": item.username, "role": item.role,
+                 "is_protected": item.is_protected,
                  "totals": totals_for(db, item.id)} for item in users
             ])

@@ -23,13 +23,14 @@
   {% if page_name == 'statistics' %}
   <p>{% if user.role == 'admin' %}All users{% else %}Your saved totals{% endif %}</p>
   <div class="table-scroll"><table>
-    <thead><tr><th>User</th><th>Home</th><th>Content</th><th>Statistics</th></tr></thead>
+    <thead><tr><th>User</th><th>Home</th><th>Content</th><th>Statistics</th>{% if user.role == 'admin' %}<th>Role</th><th>Actions</th>{% endif %}</tr></thead>
     <tbody id="statistics-body"></tbody>
   </table></div>
+  {% if user.role == 'admin' %}<p id="admin-status" role="status"></p>{% endif %}
   {% endif %}
 </section>
 <p id="tracking-status" role="status">Connecting time tracker…</p>
 <p id="error" role="alert"></p>
-<script id="tracking-config" type="application/json">{{ {'page': page_name, 'interval': heartbeat_seconds, 'userId': user.id}|tojson }}</script>
+<script id="tracking-config" type="application/json">{{ {'page': page_name, 'interval': heartbeat_seconds, 'userId': user.id, 'isAdmin': user.role == 'admin'}|tojson }}</script>
 <script src="{{ url_for('static', filename='tracking.js') }}" defer></script>
 {% endblock %}

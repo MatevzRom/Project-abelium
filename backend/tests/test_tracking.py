@@ -107,6 +107,27 @@ class TrackingTests(unittest.TestCase):
         self.advance(5)
         self.assertEqual(self.send("heartbeat").json["totals"]["home"], 9)
 
+    def test_admin_revocation_and_first_user_protection(self):
+        other = module.app.test_client()
+        uid = other.post("/register", json={"username": "bob", "password": "bob-password"}).json["user"]["id"]
+        other.post("/login", json={"username": "bob", "password": "bob-password"})
+        self.assertEqual(module.app.test_client().post(f"/users/{uid}/demote").status_code, 401)
+        self.assertEqual(other.post("/users/1/demote").status_code, 403)
+        self.assertEqual(self.client.post("/users/999/demote").status_code, 404)
+        self.assertEqual(self.client.post("/users/1/demote").status_code, 409)
+        self.client.post(f"/users/{uid}/promote")
+        self.assertEqual(other.post("/users/1/demote").status_code, 409)
+        result = self.client.post(f"/users/{uid}/demote")
+        self.assertEqual(result.json["user"]["role"], "user")
+        self.assertEqual(other.post("/users/1/promote").status_code, 403)
+        stats = other.get("/api/statistics").json
+        self.assertEqual(stats["viewer_role"], "user")
+        self.assertEqual(len(stats["users"]), 1)
+        self.client.post(f"/users/{uid}/promote")
+        self.assertEqual(other.post(f"/users/{uid}/demote").status_code, 200)
+        self.assertEqual(other.post(f"/users/{uid}/promote").status_code, 403)
+        self.assertTrue(self.client.get("/api/statistics").json["users"][0]["is_protected"])
+
     def test_access_control_and_debug_exclusion(self):
         regular = module.app.test_client()
         uid = regular.post("/register", json={"username": "alice", "password": "alice-password"}).json["user"]["id"]

@@ -4,6 +4,14 @@ body { margin: 0; }
 .container { max-width: 900px; margin: 0 auto; padding: 24px; }
 header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
 header p { margin: 6px 0; }
+.header-actions, .timers { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.timer { display: grid; gap: 4px; padding: 8px; border-radius: 8px; }
+.timer span { font-size: .8rem; }
+.timer strong { font-variant-numeric: tabular-nums; }
+.timer.current { background: #dbe8ff; }
+.table-scroll { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; }
+th, td { padding: 12px; text-align: left; border-bottom: 1px solid #dbe3ee; white-space: nowrap; }
 nav { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0; }
 button, nav a { font: inherit; border: 0; border-radius: 8px; padding: 12px 20px; cursor: pointer; }
 button { background: #2459c4; color: white; }

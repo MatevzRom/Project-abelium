@@ -23,13 +23,15 @@
 import os
 
 from datetime import timedelta
+from uuid import uuid4
 
 from flask import Flask, jsonify, redirect, render_template, render_template_string, request, session, url_for
-from sqlalchemy import create_engine, func, inspect, select, text
+from sqlalchemy import create_engine, delete, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from werkzeug.security import check_password_hash, generate_password_hash
-from models import Base, User
+from models import Base, PageTime, TrackingState, User
+from tracking import confirm_time, register_tracking, utcnow
 
 app = Flask(__name__)
 app.config.update(
@@ -42,6 +44,11 @@ app.config.update(
 )
 engine = create_engine(os.environ["DATABASE_URL"])
 SessionLocal = sessionmaker(bind=engine)
+app.config["TRACKING_HEARTBEAT_SECONDS"] = int(os.environ.get("TRACKING_HEARTBEAT_SECONDS", "5"))
+app.config["TRACKING_TIMEOUT_SECONDS"] = int(os.environ.get("TRACKING_TIMEOUT_SECONDS", "15"))
+if not 0 < app.config["TRACKING_HEARTBEAT_SECONDS"] < app.config["TRACKING_TIMEOUT_SECONDS"]:
+    raise ValueError("Tracking timeout must be greater than the positive heartbeat interval.")
+register_tracking(app, SessionLocal)
 
 
 def init_db():
@@ -106,7 +113,7 @@ def show_page(page_name):
         "content": ("Content", "A little space to learn.",
                     "Taking regular breaks can help you stay focused. Try a short walk between study sessions."),
         "statistics": ("Statistics", "Your time on each page.",
-                       "Time tracking and live statistics will be added next. No time is being recorded yet."),
+                       "Saved time updates automatically while you browse."),
     }
     if page_name not in pages:
         return "Page not found.", 404
@@ -120,6 +127,7 @@ def show_page(page_name):
         return render_template(
             "page.html", page_name=page_name, title=title,
             heading=heading, description=description, user=user,
+            heartbeat_seconds=app.config["TRACKING_HEARTBEAT_SECONDS"],
         )
 
 @app.route("/register", methods=["POST"])
@@ -175,13 +183,23 @@ def login():
         return jsonify(error="Username and password must be non-empty strings."), 400
 
     with SessionLocal() as db_session:
-        user = db_session.scalar(select(User).where(User.username == username))
+        user = db_session.scalar(select(User).where(User.username == username).with_for_update())
         if user is None or not check_password_hash(user.password_hash, password):
             return jsonify(error="Invalid username or password."), 401
 
         session.clear()
         session["user_id"] = user.id
+        session["tracking_key"] = str(uuid4())
         session.permanent = True
+        # One active login per user avoids counting overlapping browser sessions.
+        state = db_session.get(TrackingState, user.id)
+        if state is None:
+            state = TrackingState(user_id=user.id)
+            db_session.add(state)
+        state.login_key = session["tracking_key"]
+        state.page = state.view_key = state.last_seen = None
+        state.sequence = 0
+        db_session.commit()
         return jsonify(
             message="Logged in.",
             user={"id": user.id, "username": user.username, "role": user.role},
@@ -190,6 +208,13 @@ def login():
 
 @app.route("/logout", methods=["POST"])
 def logout():
+    with SessionLocal() as db_session:
+        user = db_session.scalar(select(User).where(User.id == session.get("user_id")).with_for_update())
+        state = db_session.get(TrackingState, user.id) if user else None
+        if state and state.login_key == session.get("tracking_key"):
+            confirm_time(db_session, state, utcnow(), app.config["TRACKING_TIMEOUT_SECONDS"])
+            db_session.delete(state)
+            db_session.commit()
     session.clear()
     return jsonify(message="Logged out.")
 
@@ -197,7 +222,8 @@ def logout():
 def check_admin(db_session):
     user_id = session.get("user_id")
     current_user = db_session.get(User, user_id) if isinstance(user_id, int) else None
-    if current_user is None:
+    state = db_session.get(TrackingState, user_id) if current_user else None
+    if current_user is None or state is None or state.login_key != session.get("tracking_key"):
         session.clear()
         return jsonify(error="Login required."), 401
     if current_user.role != "admin":
@@ -236,6 +262,8 @@ def delete_user(user_id):
             return jsonify(error="User not found."), 404
         if user.is_protected:
             return jsonify(error="Cannot delete the protected First User account."), 409
+        db_session.execute(delete(PageTime).where(PageTime.user_id == user_id))
+        db_session.execute(delete(TrackingState).where(TrackingState.user_id == user_id))
         db_session.delete(user)
         db_session.commit()
         if session.get("user_id") == user_id:

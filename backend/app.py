@@ -25,7 +25,7 @@ import os
 from datetime import timedelta
 
 from flask import Flask, jsonify, render_template_string, request, session
-from sqlalchemy import create_engine, func, select, text
+from sqlalchemy import create_engine, func, inspect, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -48,6 +48,22 @@ def init_db():
     # Create any tables that don't exist yet (does nothing if they do)
     Base.metadata.create_all(engine)
 
+    # create_all does not add columns to existing tables. Migrate the original
+    # schema once, protecting ID 1 (the account seeded by this application).
+    with engine.begin() as conn:
+        columns = {column["name"] for column in inspect(conn).get_columns("users")}
+        if "is_protected" not in columns:
+            conn.execute(text(
+                "ALTER TABLE users ADD COLUMN is_protected BOOLEAN NOT NULL DEFAULT FALSE"
+            ))
+            first_user = conn.execute(text("SELECT role FROM users WHERE id = 1")).first()
+            if first_user is not None:
+                if first_user.role != "admin":
+                    raise RuntimeError("Original account ID 1 must be an admin before migration.")
+                conn.execute(text("UPDATE users SET is_protected = TRUE WHERE id = 1"))
+            elif conn.execute(text("SELECT COUNT(*) FROM users")).scalar():
+                raise RuntimeError("Original account ID 1 is missing; cannot identify First User.")
+
     # Seed the first admin, but only if the users table is empty
     with SessionLocal() as session:
         user_count = session.scalar(select(func.count()).select_from(User))
@@ -57,6 +73,7 @@ def init_db():
                     username=os.environ["ADMIN_USERNAME"],
                     password_hash=generate_password_hash(os.environ["ADMIN_PASSWORD"]),
                     role="admin",
+                    is_protected=True,
                 )
             )
             session.commit()
@@ -136,6 +153,55 @@ def login():
             message="Logged in.",
             user={"id": user.id, "username": user.username, "role": user.role},
         )
+
+
+def check_admin(db_session):
+    user_id = session.get("user_id")
+    current_user = db_session.get(User, user_id) if isinstance(user_id, int) else None
+    if current_user is None:
+        session.clear()
+        return jsonify(error="Login required."), 401
+    if current_user.role != "admin":
+        return jsonify(error="Admin access required."), 403
+    return None
+
+
+@app.route("/users/<int:user_id>/promote", methods=["POST"])
+def promote_user(user_id):
+    with SessionLocal() as db_session:
+        # Serialize admin mutations so authorization remains valid during deletion.
+        db_session.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+        error = check_admin(db_session)
+        if error is not None:
+            return error
+        user = db_session.get(User, user_id)
+        if user is None:
+            return jsonify(error="User not found."), 404
+        user.role = "admin"
+        db_session.commit()
+        return jsonify(
+            message="User is now an admin.",
+            user={"id": user.id, "username": user.username, "role": user.role},
+        )
+
+
+@app.route("/users/<int:user_id>", methods=["DELETE"])
+def delete_user(user_id):
+    with SessionLocal() as db_session:
+        db_session.execute(text("LOCK TABLE users IN SHARE ROW EXCLUSIVE MODE"))
+        error = check_admin(db_session)
+        if error is not None:
+            return error
+        user = db_session.get(User, user_id)
+        if user is None:
+            return jsonify(error="User not found."), 404
+        if user.is_protected:
+            return jsonify(error="Cannot delete the protected First User account."), 409
+        db_session.delete(user)
+        db_session.commit()
+        if session.get("user_id") == user_id:
+            session.clear()
+        return jsonify(message="User deleted.", user_id=user_id)
 
 
 @app.route("/debug/users")

@@ -16,6 +16,7 @@ nav { display: flex; flex-wrap: wrap; gap: 12px; margin: 24px 0; }
 button, nav a { font: inherit; border: 0; border-radius: 8px; padding: 12px 20px; cursor: pointer; }
 button { background: #2459c4; color: white; }
 button:disabled { opacity: .6; cursor: wait; }
+.delete-user { background: #a32323; margin-left: 8px; }
 nav a { text-decoration: none; color: #17324d; background: #e0e7f0; }
 nav a[aria-current="page"] { background: #2459c4; color: white; }
 :focus-visible { outline: 3px solid #b66a00; outline-offset: 3px; }

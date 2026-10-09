@@ -14,7 +14,7 @@
 </header>
 <nav aria-label="Main navigation">
   {% for name, label in [('home', 'Home'), ('content', 'Content'), ('statistics', 'Statistics')] %}
-  <a href="{{ url_for('show_page', page_name=name) }}" {% if page_name == name %}aria-current="page"{% endif %}>{{ label }}</a>
+  <a href="{{ url_for('pages.show_page', page_name=name) }}" {% if page_name == name %}aria-current="page"{% endif %}>{{ label }}</a>
   {% endfor %}
 </nav>
 <section class="card">
@@ -31,6 +31,6 @@
 </section>
 <p id="tracking-status" role="status">Connecting time tracker…</p>
 <p id="error" role="alert"></p>
-<script id="tracking-config" type="application/json">{{ {'page': page_name, 'interval': heartbeat_seconds, 'userId': user.id, 'isAdmin': user.role == 'admin'}|tojson }}</script>
+<script id="tracking-config" type="application/json">{{ {'page': page_name, 'interval': heartbeat_seconds, 'userId': user.id, 'isAdmin': user.role == 'admin', 'isFirstUser': user.is_protected}|tojson }}</script>
 <script src="{{ url_for('static', filename='tracking.js') }}" defer></script>
 {% endblock %}

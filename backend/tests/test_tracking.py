@@ -16,11 +16,12 @@ os.environ["TRACKING_HEARTBEAT_SECONDS"] = "5"
 os.environ["TRACKING_TIMEOUT_SECONDS"] = "15"
 
 import app as module
+import database
 from models import Base, PageTime, TrackingState
 from sqlalchemy import event
 
 
-@event.listens_for(module.engine, "before_cursor_execute", retval=True)
+@event.listens_for(database.engine, "before_cursor_execute", retval=True)
 def skip_postgres_lock(conn, cursor, statement, parameters, context, executemany):
     if statement.startswith("LOCK TABLE"):
         return "SELECT 1", ()
@@ -29,13 +30,13 @@ def skip_postgres_lock(conn, cursor, statement, parameters, context, executemany
 
 class TrackingTests(unittest.TestCase):
     def setUp(self):
-        Base.metadata.drop_all(module.engine)
-        module.init_db()
+        Base.metadata.drop_all(database.engine)
+        database.init_db()
         self.client = module.app.test_client()
         self.client.post("/login", json={"username": "test-admin", "password": "test-password"})
         self.now = datetime(2026, 1, 1, tzinfo=timezone.utc)
-        self.clock = patch("tracking.utcnow", side_effect=lambda: self.now)
-        self.logout_clock = patch("app.utcnow", side_effect=lambda: self.now)
+        self.clock = patch("routes.tracking.utcnow", side_effect=lambda: self.now)
+        self.logout_clock = patch("routes.auth.utcnow", side_effect=lambda: self.now)
         self.clock.start()
         self.logout_clock.start()
         self.addCleanup(self.clock.stop)
@@ -116,6 +117,11 @@ class TrackingTests(unittest.TestCase):
         self.assertEqual(self.client.post("/users/999/demote").status_code, 404)
         self.assertEqual(self.client.post("/users/1/demote").status_code, 409)
         self.client.post(f"/users/{uid}/promote")
+        self.assertEqual(other.delete(f"/users/{uid}").status_code, 403)
+        self.assertEqual(other.delete("/users/1").status_code, 403)
+        self.assertEqual(self.client.delete("/users/1").status_code, 409)
+        self.assertIn(b'"isFirstUser": true', self.client.get("/pages/statistics").data)
+        self.assertIn(b'"isFirstUser": false', other.get("/pages/statistics").data)
         self.assertEqual(other.post("/users/1/demote").status_code, 409)
         result = self.client.post(f"/users/{uid}/demote")
         self.assertEqual(result.json["user"]["role"], "user")
@@ -141,7 +147,7 @@ class TrackingTests(unittest.TestCase):
         self.advance(5)
         self.send("heartbeat", client=regular)
         self.assertEqual(self.client.delete(f"/users/{uid}").status_code, 200)
-        with module.SessionLocal() as db:
+        with database.SessionLocal() as db:
             self.assertIsNone(db.get(TrackingState, uid))
             self.assertIsNone(db.get(PageTime, (uid, "home")))
 

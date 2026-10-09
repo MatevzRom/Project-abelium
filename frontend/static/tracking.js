@@ -75,6 +75,15 @@
               ? `Make ${user.username} an admin` : `Revoke admin role from ${user.username}`);
             button.addEventListener('click', () => changeRole(user, action, button));
             actionCell.appendChild(button);
+            if (config.isFirstUser) {
+              const deleteButton = document.createElement('button');
+              deleteButton.type = 'button';
+              deleteButton.className = 'delete-user';
+              deleteButton.textContent = 'Delete';
+              deleteButton.setAttribute('aria-label', `Delete account for ${user.username}`);
+              deleteButton.addEventListener('click', () => deleteUser(user, deleteButton));
+              actionCell.appendChild(deleteButton);
+            }
           } else {
             actionCell.textContent = 'Protected account';
           }
@@ -84,6 +93,27 @@
       }
       render();
     } catch { /* The tracking status already reports connection failures. */ }
+  }
+
+  async function deleteUser(user, button) {
+    if (promotionPending) return;
+    if (!window.confirm(`Permanently delete ${user.username} and their saved time statistics?`)) return;
+    promotionPending = true;
+    button.disabled = true;
+    const message = document.getElementById('admin-status');
+    message.textContent = `Deleting ${user.username}…`;
+    try {
+      const response = await fetch(`/users/${user.id}`, {method: 'DELETE'});
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Deletion failed.');
+      message.textContent = `${user.username}'s account was deleted.`;
+    } catch (error) {
+      message.textContent = error.message || 'Could not connect. Please try again.';
+    } finally {
+      promotionPending = false;
+      button.disabled = false;
+      await loadStatistics();
+    }
   }
 
   async function changeRole(user, action, button) {
